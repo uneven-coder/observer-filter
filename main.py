@@ -18,7 +18,7 @@ font = pygame.font.SysFont("arial", 18)
 brain_surface = pygame.Surface((BRAIN_PANEL_WIDTH, HEIGHT))
 
 POPULATION = 2000
-START_X = 400
+START_X = 40
 START_Y = HEIGHT // 2
 
 MOVE_SPEED = 5

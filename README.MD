@@ -8,6 +8,8 @@ To experiment with this idea, I built a minimal evolutionary AI simulation where
 
 The goal of the project is not to create an optimal reinforcement learning system, but to observe how simple environmental pressure and persistence can produce increasingly stable behaviour over time.
 
+![assets/Recording 2026-05-15 000504.gif]
+
 ---
 
 ## How It Works

@@ -4,6 +4,8 @@
 
 This project explores the idea of **persistence**: the concept that existence itself acts as a filter. Consciousness is only experienced from surviving perspectives because non surviving states are unable to observe themselves.
 
+![image of emergent agents](https://github.com/uneven-coder/black-wall-ai/blob/cd14769227987188e69925277d807546718a3ce9/assets/Screenshot%202026-05-14%20223839.png)
+
 To experiment with this idea, I built a minimal evolutionary AI simulation where agents are not directly rewarded or punished. Instead, survival itself becomes the selection mechanism. Behaviours that allow agents to persist naturally propagate through mutation and inheritance over generations.
 
 The goal of the project is not to create an optimal reinforcement learning system, but to observe how simple environmental pressure and persistence can produce increasingly stable behaviour over time.

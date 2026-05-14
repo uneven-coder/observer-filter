@@ -87,6 +87,9 @@ The project focuses on exploring:
 
 rather than maximizing AI performance or creating a traditional reinforcement learning system.
 
+![split early generations](https://github.com/uneven-coder/black-wall-ai/blob/28f51a85d358b8507620f407351b7a7ec616effc/assets/Screenshot%202026-05-14%20222845.png)
+
+![inital agents batch](https://github.com/uneven-coder/black-wall-ai/blob/28f51a85d358b8507620f407351b7a7ec616effc/assets/Screenshot%202026-05-14%20235945.png)
 ---
 
 ## Future Plans

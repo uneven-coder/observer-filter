@@ -17,17 +17,26 @@ font = pygame.font.SysFont("arial", 18)
 
 brain_surface = pygame.Surface((BRAIN_PANEL_WIDTH, HEIGHT))
 
-POPULATION = 2000
+POPULATION = 800
 START_X = 40
 START_Y = HEIGHT // 2
 
-MOVE_SPEED = 7
-WALL_SPEED = 10
+MOVE_SPEED = 8
+WALL_SPEED = 18
 WALL_WIDTH = 240
-GAP_SIZE = 90
+GAP_SIZE = 160
 
 MUTATION_RATE = 0.08
 MUTATION_STRENGTH = 0.35
+
+MIN_HIDDEN = 2
+MAX_NEURONS_PER_LAYER = 16
+MAX_LAYERS = 4
+
+ADD_NEURON_CHANCE = 0.06
+REMOVE_NEURON_CHANCE = 0.06
+ADD_LAYER_CHANCE = 0.06
+REMOVE_LAYER_CHANCE = 0.06
 
 running = True
 
@@ -60,15 +69,12 @@ def brain_to_color(brain):
     values = []
 
     # flatten all weights + biases
-    for row in brain.w1:
-        values.extend(row)
+    for layer in brain.weights:
+        for row in layer:
+            values.extend(row)
 
-    values.extend(brain.b1)
-
-    for row in brain.w2:
-        values.extend(row)
-
-    values.extend(brain.b2)
+    for layer in brain.biases:
+        values.extend(layer)
 
     # deterministic pseudo-hash
     total = sum(values)
@@ -89,36 +95,39 @@ def brain_to_color(brain):
     )
 
 class Brain:
-    def __init__(self, input_size=5, hidden_size=8, output_size=4, data=None):
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.output_size = output_size
+    def __init__(self, layer_sizes=None, data=None):
+        if layer_sizes is None:
+            # inputs now include wall speed => 6 inputs
+            layer_sizes = [6, 9, 4, 4, 9, 4]
+
+        self.layer_sizes = list(layer_sizes)
 
         if data is not None:
-            self.w1, self.b1, self.w2, self.b2 = data
+            self.weights, self.biases = data
         else:
-            self.w1 = [
-                [random.uniform(-1, 1) for _ in range(hidden_size)]
-                for _ in range(input_size)
-            ]
-            self.b1 = [random.uniform(-1, 1) for _ in range(hidden_size)]
+            self.weights = []
+            self.biases = []
 
-            self.w2 = [
-                [random.uniform(-1, 1) for _ in range(output_size)]
-                for _ in range(hidden_size)
-            ]
-            self.b2 = [random.uniform(-1, 1) for _ in range(output_size)]
+            for i in range(len(layer_sizes) - 1):
+                input_size = layer_sizes[i]
+                output_size = layer_sizes[i + 1]
+
+                layer_weights = [
+                    [random.uniform(-1, 1) for _ in range(output_size)]
+                    for _ in range(input_size)
+                ]
+
+                layer_biases = [random.uniform(-1, 1) for _ in range(output_size)]
+
+                self.weights.append(layer_weights)
+                self.biases.append(layer_biases)
 
     def copy(self):
         return Brain(
-            self.input_size,
-            self.hidden_size,
-            self.output_size,
+            deepcopy(self.layer_sizes),
             data=(
-                deepcopy(self.w1),
-                deepcopy(self.b1),
-                deepcopy(self.w2),
-                deepcopy(self.b2),
+                deepcopy(self.weights),
+                deepcopy(self.biases),
             ),
         )
 
@@ -126,79 +135,174 @@ class Brain:
         return math.tanh(x)
 
     def forward(self, inputs):
-        hidden = []
-        for j in range(len(self.b1)):
-            total = self.b1[j]
-            for i in range(len(inputs)):
-                total += inputs[i] * self.w1[i][j]
-            hidden.append(self.activate(total))
+        activations = inputs
 
-        outputs = []
-        for j in range(len(self.b2)):
-            total = self.b2[j]
-            for i in range(len(hidden)):
-                total += hidden[i] * self.w2[i][j]
-            outputs.append(self.activate(total))
+        for layer_weights, layer_biases in zip(self.weights, self.biases):
+            next_activations = []
 
-        return outputs
+            for j in range(len(layer_biases)):
+                total = layer_biases[j]
+
+                for i in range(len(activations)):
+                    total += activations[i] * layer_weights[i][j]
+
+                next_activations.append(self.activate(total))
+
+            activations = next_activations
+
+        return activations
 
     def mutate(self, rate=MUTATION_RATE, strength=MUTATION_STRENGTH):
         child = self.copy()
 
-        for i in range(len(child.w1)):
-            for j in range(len(child.w1[i])):
+        for layer_index in range(len(child.weights)):
+            layer_weights = child.weights[layer_index]
+            layer_biases = child.biases[layer_index]
+
+            for i in range(len(layer_weights)):
+                for j in range(len(layer_weights[i])):
+
+                    if random.random() < rate:
+                        layer_weights[i][j] += random.uniform(-strength, strength)
+
+            for j in range(len(layer_biases)):
+
                 if random.random() < rate:
-                    child.w1[i][j] += random.uniform(-strength, strength)
+                    layer_biases[j] += random.uniform(-strength, strength)
 
-        for j in range(len(child.b1)):
-            if random.random() < rate:
-                child.b1[j] += random.uniform(-strength, strength)
+        hidden_layer_count = len(child.layer_sizes) - 2
 
-        for i in range(len(child.w2)):
-            for j in range(len(child.w2[i])):
-                if random.random() < rate:
-                    child.w2[i][j] += random.uniform(-strength, strength)
+        if hidden_layer_count > 0:
+            target_layer_index = random.randint(1, len(child.layer_sizes) - 2)
+            target_size = child.layer_sizes[target_layer_index]
+            weights_layer_index = target_layer_index - 1
 
-        for j in range(len(child.b2)):
-            if random.random() < rate:
-                child.b2[j] += random.uniform(-strength, strength)
+            if (
+                random.random() < ADD_NEURON_CHANCE
+                and target_size < MAX_NEURONS_PER_LAYER
+            ):
+
+                child.layer_sizes[target_layer_index] += 1
+
+                prev_weights = child.weights[weights_layer_index]
+                for row in prev_weights:
+                    row.append(random.uniform(-1, 1))
+
+                child.biases[weights_layer_index].append(random.uniform(-1, 1))
+
+                next_weights = child.weights[weights_layer_index + 1]
+                next_weights.append([
+                    random.uniform(-1, 1)
+                    for _ in range(child.layer_sizes[target_layer_index + 1])
+                ])
+
+            if (
+                random.random() < REMOVE_NEURON_CHANCE
+                and target_size > MIN_HIDDEN
+            ):
+
+                remove_index = random.randint(0, target_size - 1)
+                child.layer_sizes[target_layer_index] -= 1
+
+                prev_weights = child.weights[weights_layer_index]
+                for row in prev_weights:
+                    del row[remove_index]
+
+                del child.biases[weights_layer_index][remove_index]
+
+                next_weights = child.weights[weights_layer_index + 1]
+                del next_weights[remove_index]
+
+        if (
+            random.random() < ADD_LAYER_CHANCE
+            and len(child.layer_sizes) - 2 < MAX_LAYERS
+        ):
+
+            insert_index = random.randint(1, len(child.layer_sizes) - 1)
+            weights_layer_index = insert_index - 1
+            new_size = random.randint(MIN_HIDDEN, MAX_NEURONS_PER_LAYER)
+
+            prev_size = child.layer_sizes[insert_index - 1]
+            next_size = child.layer_sizes[insert_index]
+
+            child.layer_sizes.insert(insert_index, new_size)
+
+            new_weights_prev = [
+                [random.uniform(-1, 1) for _ in range(new_size)]
+                for _ in range(prev_size)
+            ]
+
+            new_biases_prev = [random.uniform(-1, 1) for _ in range(new_size)]
+
+            new_weights_next = [
+                [random.uniform(-1, 1) for _ in range(next_size)]
+                for _ in range(new_size)
+            ]
+
+            child.weights[weights_layer_index] = new_weights_prev
+            child.biases[weights_layer_index] = new_biases_prev
+            child.weights.insert(weights_layer_index + 1, new_weights_next)
+            child.biases.insert(weights_layer_index + 1, [random.uniform(-1, 1) for _ in range(next_size)])
+
+        if (
+            random.random() < REMOVE_LAYER_CHANCE
+            and len(child.layer_sizes) - 2 > 1
+        ):
+
+            remove_index = random.randint(1, len(child.layer_sizes) - 2)
+            weights_layer_index = remove_index - 1
+
+            prev_size = child.layer_sizes[remove_index - 1]
+            next_size = child.layer_sizes[remove_index + 1]
+
+            del child.layer_sizes[remove_index]
+
+            new_weights_prev = [
+                [random.uniform(-1, 1) for _ in range(next_size)]
+                for _ in range(prev_size)
+            ]
+
+            child.weights[weights_layer_index] = new_weights_prev
+            child.biases[weights_layer_index] = [random.uniform(-1, 1) for _ in range(next_size)]
+
+            del child.weights[weights_layer_index + 1]
+            del child.biases[weights_layer_index + 1]
 
         return child
     
     def get_activations(self, inputs):
 
-        hidden = []
+        activations = [inputs]
 
-        for j in range(len(self.b1)):
-            total = self.b1[j]
+        current = inputs
 
-            for i in range(len(inputs)):
-                total += inputs[i] * self.w1[i][j]
+        for layer_weights, layer_biases in zip(self.weights, self.biases):
+            next_activations = []
 
-            hidden.append(self.activate(total))
+            for j in range(len(layer_biases)):
+                total = layer_biases[j]
 
-        outputs = []
+                for i in range(len(current)):
+                    total += current[i] * layer_weights[i][j]
 
-        for j in range(len(self.b2)):
-            total = self.b2[j]
+                next_activations.append(self.activate(total))
 
-            for i in range(len(hidden)):
-                total += hidden[i] * self.w2[i][j]
+            activations.append(next_activations)
+            current = next_activations
 
-            outputs.append(self.activate(total))
-
-        return hidden, outputs
+        return activations
     
 def draw_brain(surface, brain, inputs, x=500, y=50):
 
-    hidden, outputs = brain.get_activations(inputs)
+    activations = brain.get_activations(inputs)
 
     input_labels = [
         "X Pos",
         "Y Pos",
         "Wall X",
         "Gap Y",
-        "Gap Size"
+        "Gap Size",
+        "Wall Speed"
     ]
 
     output_labels = [
@@ -208,66 +312,32 @@ def draw_brain(surface, brain, inputs, x=500, y=50):
         "DOWN"
     ]
 
-    input_nodes = []
-    hidden_nodes = []
-    output_nodes = []
+    layer_nodes = []
+    layer_spacing = 60
 
-    # positions
-    for i in range(len(inputs)):
-        input_nodes.append((x, y + i * 60))
+    max_nodes = max(len(layer) for layer in activations)
+    for layer_index, layer in enumerate(activations):
+        nodes = []
+        step = 40 if max_nodes <= 12 else 26
+        for i in range(len(layer)):
+            nodes.append((x + layer_index * layer_spacing, y + i * step))
+        layer_nodes.append(nodes)
 
-    for i in range(len(hidden)):
-        hidden_nodes.append((x + 140, y + i * 40))
+    for layer_index in range(len(layer_nodes) - 1):
+        from_nodes = layer_nodes[layer_index]
+        to_nodes = layer_nodes[layer_index + 1]
+        weights = brain.weights[layer_index]
 
-    for i in range(len(outputs)):
-        output_nodes.append((x + 280, y + i * 80))
+        for i, (x1, y1) in enumerate(from_nodes):
+            for j, (x2, y2) in enumerate(to_nodes):
+                weight = weights[i][j]
+                strength = min(255, int(abs(weight) * 255))
+                color = (0, strength, 0) if weight > 0 else (strength, 0, 0)
 
-    # input -> hidden
-    for i, (x1, y1) in enumerate(input_nodes):
-        for j, (x2, y2) in enumerate(hidden_nodes):
+                pygame.draw.line(surface, color, (x1, y1), (x2, y2), 2)
 
-            weight = brain.w1[i][j]
-
-            strength = min(255, int(abs(weight) * 255))
-
-            # GREEN = positive influence
-            # RED = negative influence
-            color = (
-                0,
-                strength,
-                0
-            ) if weight > 0 else (
-                strength,
-                0,
-                0
-            )
-
-            pygame.draw.line(surface, color, (x1, y1), (x2, y2), 2)
-
-    # hidden -> output
-    for i, (x1, y1) in enumerate(hidden_nodes):
-        for j, (x2, y2) in enumerate(output_nodes):
-
-            weight = brain.w2[i][j]
-
-            strength = min(255, int(abs(weight) * 255))
-
-            color = (
-                0,
-                strength,
-                0
-            ) if weight > 0 else (
-                strength,
-                0,
-                0
-            )
-
-            pygame.draw.line(surface, color, (x1, y1), (x2, y2), 2)
-
-    for i, pos in enumerate(input_nodes):
-
-        value = abs(inputs[i])
-
+    for i, pos in enumerate(layer_nodes[0]):
+        value = abs(activations[0][i])
         brightness = min(255, int(value * 255))
 
         pygame.draw.circle(
@@ -277,50 +347,44 @@ def draw_brain(surface, brain, inputs, x=500, y=50):
             12
         )
 
-        # label
-        text = font.render(
-            f"{input_labels[i]}: {round(inputs[i], 2)}",
-            True,
-            (0, 0, 0)
-        )
+        if i < len(input_labels):
+            text = font.render(
+                f"{input_labels[i]}: {round(activations[0][i], 2)}",
+                True,
+                (0, 0, 0)
+            )
+            surface.blit(text, (pos[0] - 110, pos[1] - 10))
 
-        surface.blit(text, (pos[0] - 110, pos[1] - 10))
+    for layer_index in range(1, len(layer_nodes) - 1):
+        for i, pos in enumerate(layer_nodes[layer_index]):
+            value = abs(activations[layer_index][i])
+            brightness = min(255, int(value * 255))
 
+            pygame.draw.circle(
+                surface,
+                (brightness, brightness, 255),
+                pos,
+                14
+            )
 
-    for i, pos in enumerate(hidden_nodes):
+            if len(layer_nodes[layer_index]) > 12:
+                if i not in [0, len(layer_nodes[layer_index]) - 1]:
+                    continue
 
-        value = abs(hidden[i])
+            text = font.render(
+                f"H{layer_index}.{i}",
+                True,
+                (0, 0, 0)
+            )
+            surface.blit(text, (pos[0] - 10, pos[1] - 30))
 
-        brightness = min(255, int(value * 255))
-
-        pygame.draw.circle(
-            surface,
-            (brightness, brightness, 255),
-            pos,
-            14
-        )
-
-        if i not in [0, len(hidden_nodes) - 1]:
-            continue
-
-        text = font.render(
-            f"H{i}",
-            True,
-            (0, 0, 0)
-        )
-
-        surface.blit(text, (pos[0] - 10, pos[1] - 30))
-
-
+    outputs = activations[-1]
     strongest_output = max(range(len(outputs)), key=lambda i: outputs[i])
 
-    for i, pos in enumerate(output_nodes):
-
+    for i, pos in enumerate(layer_nodes[-1]):
         value = abs(outputs[i])
-
         brightness = min(255, int(value * 255))
 
-        # highlight chosen action
         if i == strongest_output:
             color = (255, brightness, 0)
             radius = 18
@@ -335,8 +399,9 @@ def draw_brain(surface, brain, inputs, x=500, y=50):
             radius
         )
 
+        label = output_labels[i] if i < len(output_labels) else f"O{i}"
         text = font.render(
-            f"{output_labels[i]}: {round(outputs[i], 2)}",
+            f"{label}: {round(outputs[i], 2)}",
             True,
             (0, 0, 0)
         )
@@ -366,6 +431,8 @@ class Wall:
     def reset(self):
         self.x = WIDTH
         margin = 35
+        self.gap_size = random.randint(60, 230)
+        self.speed = random.randint(12, 18)
         self.gap_y = random.randint(margin, HEIGHT - margin - self.gap_size)
 
     @property
@@ -425,6 +492,7 @@ class Agent:
             wall.x / WIDTH,
             wall.gap_center / HEIGHT,
             wall.gap_size / HEIGHT,
+            wall.speed / float(WALL_SPEED),
         ]
 
         outputs = self.brain.forward(inputs)
@@ -552,6 +620,7 @@ while running:
         wall.x / WIDTH,
         wall.gap_center / HEIGHT,
         wall.gap_size / HEIGHT,
+        wall.speed / float(WALL_SPEED),
     ]
     
 
@@ -583,11 +652,19 @@ while running:
     )
     screen.blit(brain_surface, (WIDTH, 0))
     
+    brain_size_text = font.render(
+    f"Best Brain Layers: {best_agent.brain.layer_sizes}",
+    True,
+    (0, 0, 0)
+)
+
+    screen.blit(brain_size_text, (10, 54))
+    
 
 
 
 
     pygame.display.flip()
-    clock.tick(60)
+    clock.tick(120)
 
 pygame.quit()

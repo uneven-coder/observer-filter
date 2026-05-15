@@ -3,6 +3,9 @@ import random
 import colorsys
 import math
 from copy import deepcopy
+from numba import njit
+import numpy as np
+import colorsys
 
 pygame.init()
 
@@ -17,7 +20,8 @@ font = pygame.font.SysFont("arial", 18)
 
 brain_surface = pygame.Surface((BRAIN_PANEL_WIDTH, HEIGHT))
 
-POPULATION = 800
+POPULATION = 8000
+STARTING_LAYERS = [6, 9, 4, 4, 9, 4]
 START_X = 40
 START_Y = HEIGHT // 2
 
@@ -41,50 +45,33 @@ REMOVE_LAYER_CHANCE = 0.06
 running = True
 
 
-def color_pool(count=256):
-    colors = []
-    for i in range(count):
-        h = i / count
-        s = random.uniform(0.25, 1.0)
-        v = random.uniform(0.8, 1.0)
-        r, g, b = colorsys.hsv_to_rgb(h, s, v)
-        colors.append((int(r * 255), int(g * 255), int(b * 255)))
-    random.shuffle(colors)
-    return colors
-
-
-def mutate_color(color):
-    r, g, b = [c / 255 for c in color]
-    h, s, v = colorsys.rgb_to_hsv(r, g, b)
-
-    h = (h + random.uniform(-0.03, 0.03)) % 1.0
-    s = min(1.0, max(0.25, s + random.uniform(-0.03, 0.03)))
-    v = min(1.0, max(0.5, v + random.uniform(-0.03, 0.03)))
-
-    r, g, b = colorsys.hsv_to_rgb(h, s, v)
-    return (int(r * 255), int(g * 255), int(b * 255))
+@njit
+def compute_brain_stats(values):
+    total = np.sum(values)
+    avg = np.mean(np.abs(values))
+    variance = np.var(values)
+    return total, avg, variance
 
 def brain_to_color(brain):
+    values = np.array(
+        [
+            value
+            for layer in brain.weights
+            for row in layer
+            for value in row
+        ] + [
+            value
+            for layer in brain.biases
+            for value in layer
+        ],
+        dtype=np.float32
+    )
 
-    values = []
+    total, avg, variance = compute_brain_stats(values)
 
-    # flatten all weights + biases
-    for layer in brain.weights:
-        for row in layer:
-            values.extend(row)
-
-    for layer in brain.biases:
-        values.extend(layer)
-
-    # deterministic pseudo-hash
-    total = sum(values)
-    avg = sum(abs(v) for v in values) / len(values)
-    variance = sum((v - total / len(values)) ** 2 for v in values)
-
-    # convert to HSV
-    h = abs(total * 0.1) % 1.0
-    s = min(1.0, 0.4 + avg * 0.5)
-    v = min(1.0, 0.6 + (variance % 1.0) * 0.4)
+    h = float(abs(total * 0.1) % 1.0)
+    s = float(min(1.0, 0.4 + avg * 0.5))
+    v = float(min(1.0, 0.6 + (variance % 1.0) * 0.4))
 
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
 
@@ -97,8 +84,7 @@ def brain_to_color(brain):
 class Brain:
     def __init__(self, layer_sizes=None, data=None):
         if layer_sizes is None:
-            # inputs now include wall speed => 6 inputs
-            layer_sizes = [6, 9, 4, 4, 9, 4]
+            layer_sizes = STARTING_LAYERS
 
         self.layer_sizes = list(layer_sizes)
 
@@ -468,7 +454,7 @@ class Wall:
 
 
 class Agent:
-    def __init__(self, x, y, color, brain=None, width=10):
+    def __init__(self, x, y, brain=None, width=10):
         self.x = x
         self.y = y
         self.brain = brain if brain is not None else Brain()
@@ -535,7 +521,6 @@ class Agent:
         child = Agent(
             START_X,
             START_Y,
-            None,
             child_brain,
             self.width
         )
@@ -557,7 +542,7 @@ def weighted_choice(agents):
     return agents[-1]
 
 
-def evolve(population, generation, base_colors):
+def evolve(population, generation):
     survivors = [agent for agent in population if agent.alive]
 
     # extinction event
@@ -568,7 +553,6 @@ def evolve(population, generation, base_colors):
             Agent(
                 START_X,
                 START_Y,
-                random.choice(base_colors)
             )
             for _ in range(POPULATION)
         ]
@@ -593,9 +577,8 @@ def evolve(population, generation, base_colors):
     return new_population, generation + 1
 
 
-base_colors = color_pool()
 agents = [
-    Agent(START_X, START_Y, random.choice(base_colors))
+    Agent(START_X, START_Y)
     for _ in range(POPULATION)
 ]
 best_agent = None
@@ -627,7 +610,7 @@ while running:
     wall.update()
 
     if dead_count >= int(POPULATION * 0.96) or alive_count == 0: #  
-        agents, generation = evolve(agents, generation, base_colors)
+        agents, generation = evolve(agents, generation)
         wall = Wall()
 
     screen.fill((255, 255, 255))

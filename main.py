@@ -21,7 +21,7 @@ POPULATION = 2000
 START_X = 40
 START_Y = HEIGHT // 2
 
-MOVE_SPEED = 5
+MOVE_SPEED = 7
 WALL_SPEED = 10
 WALL_WIDTH = 240
 GAP_SIZE = 90
@@ -55,6 +55,38 @@ def mutate_color(color):
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (int(r * 255), int(g * 255), int(b * 255))
 
+def brain_to_color(brain):
+
+    values = []
+
+    # flatten all weights + biases
+    for row in brain.w1:
+        values.extend(row)
+
+    values.extend(brain.b1)
+
+    for row in brain.w2:
+        values.extend(row)
+
+    values.extend(brain.b2)
+
+    # deterministic pseudo-hash
+    total = sum(values)
+    avg = sum(abs(v) for v in values) / len(values)
+    variance = sum((v - total / len(values)) ** 2 for v in values)
+
+    # convert to HSV
+    h = abs(total * 0.1) % 1.0
+    s = min(1.0, 0.4 + avg * 0.5)
+    v = min(1.0, 0.6 + (variance % 1.0) * 0.4)
+
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+
+    return (
+        int(r * 255),
+        int(g * 255),
+        int(b * 255)
+    )
 
 class Brain:
     def __init__(self, input_size=5, hidden_size=8, output_size=4, data=None):
@@ -372,8 +404,8 @@ class Agent:
     def __init__(self, x, y, color, brain=None, width=10):
         self.x = x
         self.y = y
-        self.color = color
         self.brain = brain if brain is not None else Brain()
+        self.color = brain_to_color(self.brain)
         self.width = width
         self.alive = True
         self.score = 0
@@ -427,15 +459,15 @@ class Agent:
 
         if mutate:
             child_brain = self.brain.mutate()
-            child_color = mutate_color(self.color)
+            # child_color = mutate_color(self.color)
         else:
             child_brain = self.brain.copy()
-            child_color = self.color
+            # child_color = self.color
 
         child = Agent(
             START_X,
             START_Y,
-            child_color,
+            None,
             child_brain,
             self.width
         )
